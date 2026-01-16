@@ -1,0 +1,4 @@
+rootProject.name = "tv-gameboy"
+
+include "shared", "launcher", "games:template-game"
+project(":games:template-game").projectDir = file("games/template-game")
