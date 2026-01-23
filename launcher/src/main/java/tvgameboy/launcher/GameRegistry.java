@@ -4,18 +4,19 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import tvgameboy.games.template.TemplateGame;
+import tvgameboy.games.template.MoleGame;
 
 public final class GameRegistry {
     private static final List<GameEntry> GAMES;
 
     static {
-        List<GameEntry> games = new ArrayList<>();
+        // Prepare six slots (3x2 grid). Place the TemplateGame at bottom-middle (index 4).
+        List<GameEntry> games = new ArrayList<>(Collections.nCopies(6, null));
 
-        games.add(new GameEntry(
-                "template-game",
-                "Template Game",
-                TemplateGame::new
+        games.set(4, new GameEntry(
+            "mole-game",
+            "Mole",
+            MoleGame::new
         ));
 
         GAMES = Collections.unmodifiableList(games);
