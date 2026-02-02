@@ -13,7 +13,9 @@ public final class GameRegistry {
     static {
         List<GameEntry> games = new ArrayList<>();
 
-        // Put the Mole game in the top-middle selector slot by adding it before the template entry
+        // Reserve the first slot so the Mole game appears in the top-middle selector
+        games.add(null);
+
         games.add(new GameEntry(
             "mole-game",
             "Mole Mole",
