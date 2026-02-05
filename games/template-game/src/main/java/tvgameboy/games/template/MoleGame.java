@@ -1,18 +1,27 @@
 package tvgameboy.games.template;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.Graphics;
-package tvgameboy.games.template;
-
 import java.awt.AlphaComposite;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+import javax.swing.Timer;
+import tvgameboy.shared.Game;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.event.ComponentAdapter;
@@ -74,6 +83,24 @@ public final class MoleGame implements Game {
         private float playerY;
         private float vx, vy;
 
+        // previous Y to detect surface <-> ground transitions
+        private float prevPlayerY;
+
+        // small dirt particles when surfacing/burrowing
+        private static final class Particle {
+            float x, y, vx, vy, life;
+            Particle(float x, float y, float vx, float vy, float life) { this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.life = life; }
+        }
+        private final java.util.List<Particle> particles = new java.util.ArrayList<>();
+
+        // visual mole radius accessible from step/painting
+        private int moleRadius = 14;
+
+        // simple worms
+        private static final class Worm { float x,y,vx; Worm(float x,float y,float vx){this.x=x;this.y=y;this.vx=vx;} }
+        private final java.util.List<Worm> worms = new java.util.ArrayList<>();
+        private int spawnTimer = 0;
+
         private float cameraX, cameraY;
 
         private boolean up, down, left, right;
@@ -95,34 +122,29 @@ public final class MoleGame implements Game {
                 @Override
                 public void keyPressed(KeyEvent e) {
                     switch (e.getKeyCode()) {
-                        case KeyEvent.VK_W: up = true; break;
-                        case KeyEvent.VK_S: down = true; break;
-                        case KeyEvent.VK_A: left = true; break;
-                        case KeyEvent.VK_D: right = true; break;
+                        case KeyEvent.VK_W: case KeyEvent.VK_UP: up = true; break;
+                        case KeyEvent.VK_S: case KeyEvent.VK_DOWN: down = true; break;
+                        case KeyEvent.VK_A: case KeyEvent.VK_LEFT: left = true; break;
+                        case KeyEvent.VK_D: case KeyEvent.VK_RIGHT: right = true; break;
                     }
                 }
 
                 @Override
                 public void keyReleased(KeyEvent e) {
                     switch (e.getKeyCode()) {
-                        case KeyEvent.VK_W: up = false; break;
-                        case KeyEvent.VK_S: down = false; break;
-                        case KeyEvent.VK_A: left = false; break;
-                        case KeyEvent.VK_D: right = false; break;
+                        case KeyEvent.VK_W: case KeyEvent.VK_UP: up = false; break;
+                        case KeyEvent.VK_S: case KeyEvent.VK_DOWN: down = false; break;
+                        case KeyEvent.VK_A: case KeyEvent.VK_LEFT: left = false; break;
+                        case KeyEvent.VK_D: case KeyEvent.VK_RIGHT: right = false; break;
                     }
                 }
             });
 
+            // remove mouse digging: click only focuses the view
             addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    int sx = (int)(cameraX - getWidth() / 2f);
-                    int sy = (int)(cameraY - getHeight() / 2f);
-                    int wx = sx + e.getX();
-                    int wy = sy + e.getY();
-                    digAt(wx, wy, 22);
                     requestFocusInWindow();
-                    repaint();
                 }
             });
 
@@ -159,6 +181,9 @@ public final class MoleGame implements Game {
         private void step() {
             ensureWorldSize();
 
+            // remember previous vertical position to detect surface transitions
+            prevPlayerY = playerY;
+
             // movement
             float accel = 0.45f;
             if (left) vx -= accel;
@@ -186,15 +211,43 @@ public final class MoleGame implements Game {
             playerX = Math.max(16, Math.min(worldW - 16, playerX));
             playerY = Math.max(16, Math.min(worldH - 16, playerY));
 
-            // surface restriction: cannot go above surface line (worldH/2)
+            // surface line Y (mole may go above it)
             float surfaceY = worldH / 2f;
-            if (playerY < surfaceY) {
-                playerY = surfaceY;
-                if (vy < 0) vy = 0;
+
+            // always dig the terrain where the player is (leave tunnel) — only when underground
+            boolean isBelow = playerY > surfaceY + 0.5f;
+            if (isBelow) digAt((int)playerX, (int)playerY, 18);
+
+            // spawn/update simple worms (only underground)
+            spawnTimer++;
+            if (spawnTimer > 200) {
+                spawnTimer = 0;
+                float spawnX = (float)(Math.random() * worldW);
+                float minY = worldH / 2f + moleRadius + 6f;
+                float spawnY = minY + (float)(Math.random() * (worldH - minY - 20));
+                worms.add(new Worm(spawnX, spawnY, (float)(Math.random() * 1.2 - 0.6)));
             }
 
-            // always dig the terrain where the player is (leave tunnel)
-            digAt((int)playerX, (int)playerY, 18);
+            // update worms
+            for (int i = worms.size() - 1; i >= 0; i--) {
+                Worm w = worms.get(i);
+                w.x += w.vx;
+                if (w.x < 0) { w.x = 0; w.vx = Math.abs(w.vx); }
+                if (w.x > worldW) { w.x = worldW; w.vx = -Math.abs(w.vx); }
+            }
+
+            // detect crossing surface -> spawn dirt particles when burrowing/emerging
+            boolean wasBelow = prevPlayerY > surfaceY + 0.5f;
+            if (wasBelow != isBelow) {
+                int count = isBelow ? 12 : 18;
+                for (int i = 0; i < count; i++) {
+                    float angle = (float)(Math.random() * Math.PI * 2);
+                    float pSpeed = (float)(Math.random() * 3 + 0.8);
+                    float pvx = (float)Math.cos(angle) * pSpeed;
+                    float pvy = (float)Math.sin(angle) * pSpeed - (isBelow ? 0.4f : 1.2f);
+                    particles.add(new Particle(playerX + (float)(Math.random()*6-3), playerY + (float)(Math.random()*6-3), pvx, pvy, (float)(Math.random()*0.6 + 0.6f)));
+                }
+            }
 
             // smooth camera easing
             float ease = 0.08f;
@@ -213,7 +266,9 @@ public final class MoleGame implements Game {
             int x0 = wx - radius;
             int y0 = wy - radius;
             Graphics2D g = terrain.createGraphics();
-            g.setComposite(AlphaComposite.Clear);
+            // paint tunnel as a darker shade of the dirt instead of making it transparent
+            g.setComposite(AlphaComposite.SrcOver);
+            g.setColor(new Color(95, 50, 12));
             g.fillOval(x0, y0, radius * 2, radius * 2);
             g.dispose();
         }
@@ -241,13 +296,39 @@ public final class MoleGame implements Game {
             g2.setColor(new Color(80, 140, 60, 180));
             g2.fillRect(0, surfaceScreenY, getWidth(), 4);
 
-            // draw mole at center relative to camera
+            // draw mole at center relative to camera (larger visual)
             int px = (int)(playerX - sx);
             int py = (int)(playerY - sy);
             g2.setColor(new Color(80, 40, 20));
-            g2.fillOval(px - 10, py - 10, 20, 20);
+            // use class-level moleRadius
+            g2.fillOval(px - moleRadius, py - moleRadius, moleRadius * 2, moleRadius * 2);
             g2.setColor(Color.BLACK);
-            g2.fillOval(px + 4, py - 4, 4, 4);
+            g2.fillOval(px + 6, py - 6, 6, 6);
+
+            // draw worms
+            for (Worm w : worms) {
+                int wxp = (int)(w.x - sx);
+                int wyp = (int)(w.y - sy);
+                g2.setColor(new Color(220, 100, 120));
+                g2.fillOval(wxp - 6, wyp - 4, 12, 8);
+                g2.setColor(new Color(180, 60, 80));
+                g2.fillOval(wxp - 3, wyp - 2, 6, 4);
+            }
+
+            // update and draw particles
+            for (int i = particles.size() - 1; i >= 0; i--) {
+                Particle p = particles.get(i);
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.18f; // gravity
+                p.life -= 0.03f;
+                int drawX = (int)(p.x - sx);
+                int drawY = (int)(p.y - sy);
+                int alpha = (int)(Math.max(0f, Math.min(1f, p.life)) * 200);
+                g2.setColor(new Color(110, 68, 28, alpha));
+                g2.fillOval(drawX - 2, drawY - 2, 4, 4);
+                if (p.life <= 0f) particles.remove(i);
+            }
 
             g2.dispose();
         }
