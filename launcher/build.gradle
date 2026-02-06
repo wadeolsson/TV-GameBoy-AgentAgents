@@ -5,6 +5,7 @@ plugins {
 dependencies {
     implementation project(":shared")
     implementation project(":games:template-game")
+    implementation project(":games:mole-game")
 }
 
 application {

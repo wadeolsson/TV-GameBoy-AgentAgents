@@ -1,0 +1,58 @@
+Mole Game — TODO & Project Context
+Date: 2026-01-30
+
+Workspace root:
+c:\Users\tvhsstudent\Documents\Graham C\MoleGameFork\TV-GameBoy-AgentAgents-Graham
+
+Modules present:
+- shared
+- launcher
+- games/template-game
+- (planned) games/mole-game
+
+Build & run notes:
+- Gradle wrapper script: gradlew.bat (use from repo root)
+- Build launcher (installDist) then run generated launcher script:
+  powershell -File .\dev-run.ps1    # starts watcher that rebuilds and restarts on changes
+
+Useful Gradle tasks (examples):
+- .\gradlew.bat :launcher:installDist    # builds and creates runnable install under launcher/build/install
+
+Current dev helper:
+- `dev-run.ps1` (project root) — watches `*.java`, runs `:launcher:installDist`, then launches
+  launcher\build\install\launcher\bin\launcher.bat. It restarts the app automatically on Java file changes.
+
+High-level TODOs (tracked in project todo list):
+1) Design & questions
+   - Define controls, resolution, tunnel model, worm placement, persistence, and art style.
+2) Scaffold module
+   - Create `games/mole-game` by copying `games/template-game` skeleton and add `build.gradle`.
+3) Add to Gradle settings
+   - Update `settings.gradle` to include `:games:mole-game`.
+4) Implement player controller
+   - Surface walking, jumping, gravity, input mapping (Left/Right, Jump, Dig).
+5) Implement digging & tunnels
+   - Enter underground on Down from surface, free movement underground, record tunnel path.
+6) Tunnel data & rendering
+   - Decide grid vs polyline; draw tunnel visuals and handle collisions.
+7) Collectibles & scoring
+   - Worms placement, pickup, score/UI.
+8) Integration into selector
+   - Register game in `GameRegistry` and place in selector top-middle slot.
+9) Assets & polish
+   - Placeholder sprites, animations, sounds, tweak physics.
+10) Test & iterate
+   - Use `dev-run.ps1` watcher to rebuild/restart while developing.
+
+Verification questions to answer before implementation:
+- Preferred control mapping? (default: A/D or ←/→, Space = jump, ↓ = dig)
+- Target resolution or window size?
+- Tunnel representation preference: grid of dug tiles (simpler) or free polyline (smoother visuals)?
+- Worm placement: above ground, underground, or both?
+- Persistence: reset tunnels each run or persist across sessions?
+- Do you have art assets, or should placeholders be used?
+- Add enemies/stamina/limits for digging?
+
+Next action I can take (pick one):
+- Scaffold `games/mole-game` module and add basic player movement prototype.
+- Or implement tunnel model (grid or polyline) and demo digging visuals.
