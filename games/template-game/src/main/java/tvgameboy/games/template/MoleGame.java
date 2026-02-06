@@ -100,16 +100,34 @@ public final class MoleGame implements Game {
         private static final class Worm { float x,y,vx; Worm(float x,float y,float vx){this.x=x;this.y=y;this.vx=vx;} }
         private final java.util.List<Worm> worms = new java.util.ArrayList<>();
         private int spawnTimer = 0;
+        // image used to draw worms
+        private BufferedImage wormImage;
 
         private float cameraX, cameraY;
 
         private boolean up, down, left, right;
+        // whether the mole is standing on the surface and can run/jump
+        private boolean grounded = false;
+        // prevent repeated digging while holding the down key
+        private boolean digPressedLast = false;
+        // configurable jump velocity (negative = upward)
+        private float jumpVelocity = -14f;
 
         private final Timer tick;
 
         WorldView() {
             setPreferredSize(new Dimension(800, 600));
             setFocusable(true);
+
+            // generate a small worm image (simple sprite)
+            wormImage = new BufferedImage(20, 10, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D ig = wormImage.createGraphics();
+            ig.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            ig.setColor(new Color(220, 100, 120));
+            ig.fillOval(0, 0, 20, 10);
+            ig.setColor(new Color(180, 60, 80));
+            ig.fillOval(6, 3, 8, 4);
+            ig.dispose();
 
             addComponentListener(new ComponentAdapter() {
                 @Override
@@ -122,7 +140,13 @@ public final class MoleGame implements Game {
                 @Override
                 public void keyPressed(KeyEvent e) {
                     switch (e.getKeyCode()) {
-                        case KeyEvent.VK_W: case KeyEvent.VK_UP: up = true; break;
+                        case KeyEvent.VK_W: case KeyEvent.VK_UP:
+                            // jump on press if grounded, otherwise act as 'up' for underground movement
+                            if (!up && grounded) {
+                                vy = jumpVelocity;
+                                grounded = false;
+                            }
+                            up = true; break;
                         case KeyEvent.VK_S: case KeyEvent.VK_DOWN: down = true; break;
                         case KeyEvent.VK_A: case KeyEvent.VK_LEFT: left = true; break;
                         case KeyEvent.VK_D: case KeyEvent.VK_RIGHT: right = true; break;
@@ -170,9 +194,10 @@ public final class MoleGame implements Game {
                 g.fillRect(0, worldH / 2, worldW, worldH - worldH / 2);
                 g.dispose();
 
-                // player start roughly at surface center
+                // player start standing on the surface
                 playerX = worldW / 2f;
-                playerY = worldH / 2f - 16;
+                playerY = worldH / 2f - moleRadius;
+                grounded = true;
                 cameraX = playerX;
                 cameraY = playerY;
             }
@@ -184,12 +209,35 @@ public final class MoleGame implements Game {
             // remember previous vertical position to detect surface transitions
             prevPlayerY = playerY;
 
+            // surface line Y (mole may go above it) - compute early so gravity can use it
+            float surfaceY = worldH / 2f;
+            float groundY = surfaceY - moleRadius;
+
             // movement
             float accel = 0.45f;
             if (left) vx -= accel;
             if (right) vx += accel;
-            if (up) vy -= accel;
-            if (down) vy += accel;
+            // vertical input only affects movement while underground
+            boolean isCurrentlyBelow = playerY > surfaceY + 0.5f;
+            if (isCurrentlyBelow) {
+                if (up) vy -= accel;
+                if (down) vy += accel;
+            }
+
+            // dig from surface: pressing down while grounded tunnels the mole underground
+            if (down && grounded && !digPressedLast) {
+                // create a hole slightly below the surface near the player
+                int digY = (int)(surfaceY + moleRadius + 6);
+                digAt((int)playerX, digY, moleRadius * 2);
+                // place the mole just below the surface
+                playerY = surfaceY + moleRadius + 8;
+                vy = 1f;
+                grounded = false;
+                digPressedLast = true;
+            }
+            if (!down) {
+                digPressedLast = false;
+            }
 
             // clamp speed
             float maxSpeed = 6f;
@@ -204,15 +252,36 @@ public final class MoleGame implements Game {
             vx *= 0.85f;
             vy *= 0.85f;
 
+            // gravity when above the surface: pull mole down toward surface
+            float gravity = 0.6f;
+            float maxFall = 10f;
+
+            // integrate
             playerX += vx;
+            // apply gravity only when above surface (not grounded)
+            if (playerY < groundY) {
+                vy += gravity;
+                if (vy > maxFall) vy = maxFall;
+            }
             playerY += vy;
+
+            // landing detection: if we hit the surface from above, snap to groundY
+            if (playerY >= groundY && playerY <= surfaceY + 0.5f) {
+                playerY = groundY;
+                vy = 0f;
+                grounded = true;
+            } else {
+                // if we're below the visible surface line we are not grounded
+                if (playerY > surfaceY + 0.5f) grounded = false;
+                else if (playerY < groundY) grounded = false;
+            }
 
             // bounds
             playerX = Math.max(16, Math.min(worldW - 16, playerX));
             playerY = Math.max(16, Math.min(worldH - 16, playerY));
 
-            // surface line Y (mole may go above it)
-            float surfaceY = worldH / 2f;
+            // surface line Y (mole may go above it) - already computed above
+            // float surfaceY = worldH / 2f;
 
             // always dig the terrain where the player is (leave tunnel) — only when underground
             boolean isBelow = playerY > surfaceY + 0.5f;
@@ -305,14 +374,24 @@ public final class MoleGame implements Game {
             g2.setColor(Color.BLACK);
             g2.fillOval(px + 6, py - 6, 6, 6);
 
-            // draw worms
-            for (Worm w : worms) {
-                int wxp = (int)(w.x - sx);
-                int wyp = (int)(w.y - sy);
-                g2.setColor(new Color(220, 100, 120));
-                g2.fillOval(wxp - 6, wyp - 4, 12, 8);
-                g2.setColor(new Color(180, 60, 80));
-                g2.fillOval(wxp - 3, wyp - 2, 6, 4);
+            // draw worms using sprite image
+            if (wormImage != null) {
+                int iw = wormImage.getWidth();
+                int ih = wormImage.getHeight();
+                for (Worm w : worms) {
+                    int wxp = (int)(w.x - sx);
+                    int wyp = (int)(w.y - sy);
+                    g2.drawImage(wormImage, wxp - iw/2, wyp - ih/2, null);
+                }
+            } else {
+                for (Worm w : worms) {
+                    int wxp = (int)(w.x - sx);
+                    int wyp = (int)(w.y - sy);
+                    g2.setColor(new Color(220, 100, 120));
+                    g2.fillOval(wxp - 6, wyp - 4, 12, 8);
+                    g2.setColor(new Color(180, 60, 80));
+                    g2.fillOval(wxp - 3, wyp - 2, 6, 4);
+                }
             }
 
             // update and draw particles
